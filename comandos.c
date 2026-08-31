@@ -1,50 +1,40 @@
 /**
  * ====================================================================================
- *  comandos.c  --  CAPA DE COMANDOS
+ *  comandos.c  --  Capa de comandos
  * ====================================================================================
- *  Traduce lo que el usuario escribe en llamadas a la capa de disco.
+ *  Traduce lo que escribe el usuario en llamadas a la capa de disco.
  *
- *  Reglas de esta capa:
- *   - Valida SIEMPRE los argumentos antes de tocar el disco.
- *   - Convierte la numeración humana (línea 1, 2, 3...) a índices del arreglo (0, 1, 2...).
- *   - Imprime en pantalla usando write() sobre el File Descriptor 1 (STDOUT),
- *     como pide el enunciado.
+ *  Responsabilidades de esta capa:
+ *   - Validar los argumentos antes de acceder al archivo.
+ *   - Convertir la numeracion que ve el usuario (linea 1, 2, 3...) a los indices
+ *     del arreglo interno (0, 1, 2...).
+ *   - Informar al usuario del resultado de cada operacion.
+ *
+ *  Esta capa no ejecuta llamadas al sistema sobre el archivo de texto: delega
+ *  todas esas operaciones en archivo.c.
  * ====================================================================================
  */
 
 #include "editor.h"
 
-#include <unistd.h>   /* write */
-#include <stdio.h>    /* printf, fflush */
-#include <stdlib.h>   /* strtol */
-#include <string.h>   /* strlen */
-#include <errno.h>
-#include <limits.h>
+#include <unistd.h>   /* write          */
+#include <stdio.h>    /* printf         */
+#include <stdlib.h>   /* strtol         */
+#include <string.h>   /* strlen         */
+#include <errno.h>    /* errno          */
 
 /* ==================================================================================
  * Utilidades internas
  * ================================================================================== */
 
 /**
- * Imprime un bloque de bytes en STDOUT usando write() (FD 1).
+ * Convierte una cadena en un numero de linea valido.
  *
- * ¡CUIDADO CON LA MEZCLA! printf() escribe en un búfer de la biblioteca estándar
- * que se vacía cuando le da la gana. write() va directo al kernel. Si mezclas
- * ambos sin cuidado, la salida sale DESORDENADA en pantalla.
- * Solución: fflush(stdout) antes de cada write() para vaciar el búfer de printf.
- */
-static void imprimir_bytes(const char *buf, size_t n)
-{
-    fflush(stdout);
-    escribir_todo(1, buf, n);   /* FD 1 = STDOUT, siempre abierto por el shell */
-}
-
-/**
- * Convierte texto a número de línea y valida que sea usable.
- * Devuelve el número (>=1) o -1 si el texto no es un entero positivo válido.
+ * Se usa strtol y no atoi porque atoi no reporta errores: atoi("hola") devuelve 0
+ * sin indicar que la conversion fallo, y ese 0 se colaria como numero de linea.
  *
- * Usamos strtol y no atoi porque atoi NO reporta errores: atoi("hola") da 0
- * silenciosamente, y ese 0 se te cuela como número de línea válido.
+ * Retorna: el numero convertido (siempre >= 1), o -1 si la cadena no representa
+ *          un entero positivo valido.
  */
 static long parsear_numero(const char *txt)
 {
@@ -54,27 +44,32 @@ static long parsear_numero(const char *txt)
     errno = 0;
     long v = strtol(txt, &fin, 10);
 
-    if (errno != 0)      return -1;   /* Desbordamiento */
-    if (fin == txt)      return -1;   /* No había ni un dígito */
+    if (errno != 0)   return -1;   /* Desbordamiento del rango de long */
+    if (fin == txt)   return -1;   /* No habia ningun digito           */
+
     while (*fin == ' ' || *fin == '\t') fin++;
-    if (*fin != '\0')    return -1;   /* Sobraba basura después del número */
-    if (v < 1)           return -1;   /* Las líneas se cuentan desde 1 */
+
+    if (*fin != '\0') return -1;   /* Quedaban caracteres sobrantes    */
+    if (v < 1)        return -1;   /* Las lineas se numeran desde 1    */
 
     return v;
 }
 
-/* Mensaje único para "no has abierto nada todavía". */
+/**
+ * Verifica que haya un archivo abierto antes de operar sobre el.
+ * Retorna 0 si lo hay, -1 si no (e imprime el mensaje correspondiente).
+ */
 static int exigir_archivo(const Editor *ed)
 {
     if (!ed_esta_abierto(ed)) {
-        printf("Error: no hay ningún archivo abierto. Usa: o <archivo>\n");
+        printf("Error: no hay ningun archivo abierto. Usa: o <archivo>\n");
         return -1;
     }
     return 0;
 }
 
 /* ==================================================================================
- * o [archivo]  --  Abrir o crear
+ * o <archivo>  --  Abrir o crear un archivo
  * ================================================================================== */
 int cmd_o(Editor *ed, const char *arg)
 {
@@ -84,81 +79,68 @@ int cmd_o(Editor *ed, const char *arg)
     }
 
     if (ed_abrir(ed, arg) == -1) {
-        return -1;                     /* ed_abrir ya llamó a perror() */
+        return -1;                     /* ed_abrir ya reporto el error con perror */
     }
 
-    printf("Archivo '%s' abierto (fd=%d, %ld bytes, %zu líneas).\n",
+    printf("Archivo '%s' abierto (fd=%d, %ld bytes, %zu lineas).\n",
            ed->ruta, ed->fd, (long)ed->tam, ed->n_lineas);
     return 0;
 }
 
 /* ==================================================================================
- * p [n]  --  Imprimir línea n, o todo el archivo si no hay argumento
+ * p [n]  --  Imprimir la linea n, o el archivo completo si no se indica n
  * ================================================================================== */
 int cmd_p(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
 
-    char buf[ED_MAX_LINEA];
-
-    /* --- Caso 1: 'p' sin argumento -> volcar el archivo completo --- */
+    /* Caso 1: 'p' sin argumento imprime todo el archivo con numeracion. */
     if (arg == NULL || *arg == '\0') {
         if (ed->n_lineas == 0) {
-            printf("(archivo vacío)\n");
+            printf("(archivo vacio)\n");
             return 0;
         }
 
         for (size_t i = 0; i < ed->n_lineas; i++) {
-            ssize_t n = ed_leer_linea(ed, i, buf, sizeof(buf));
-            if (n < 0) return -1;
-
-            printf("%4zu | ", i + 1);      /* Numeración humana: empieza en 1 */
-            imprimir_bytes(buf, (size_t)n);
-
-            /* Si la última línea no traía '\n', lo ponemos para no romper el prompt. */
-            if (n == 0 || buf[n - 1] != '\n') imprimir_bytes("\n", 1);
+            printf("%4zu | ", i + 1);
+            if (ed_imprimir_linea(ed, i) == -1) return -1;
         }
         return 0;
     }
 
-    /* --- Caso 2: 'p n' -> una sola línea --- */
+    /* Caso 2: 'p n' imprime una sola linea. */
     long n_linea = parsear_numero(arg);
     if (n_linea < 0) {
-        printf("Uso: p [n]   (n debe ser un entero >= 1)\n");
+        printf("Uso: p [n]   (n debe ser un entero mayor o igual a 1)\n");
         return -1;
     }
     if ((size_t)n_linea > ed->n_lineas) {
-        printf("Error: la línea %ld no existe (el archivo tiene %zu líneas).\n",
+        printf("Error: la linea %ld no existe (el archivo tiene %zu lineas).\n",
                n_linea, ed->n_lineas);
         return -1;
     }
 
-    ssize_t n = ed_leer_linea(ed, (size_t)n_linea - 1, buf, sizeof(buf));
-    if (n < 0) return -1;
-
-    imprimir_bytes(buf, (size_t)n);
-    if (n == 0 || buf[n - 1] != '\n') imprimir_bytes("\n", 1);
-    return 0;
+    return ed_imprimir_linea(ed, (size_t)n_linea - 1);
 }
 
 /* ==================================================================================
- * a [texto]  --  Anexar una línea al final
+ * a <texto>  --  Anadir el texto como una nueva linea al final
  * ================================================================================== */
 int cmd_a(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
 
-    if (arg == NULL) arg = "";        /* 'a' solo => añade una línea en blanco */
+    if (arg == NULL) arg = "";        /* 'a' sin texto anade una linea en blanco */
 
     if (ed_anexar(ed, arg) == -1) return -1;
 
-    printf("Línea añadida. El archivo tiene ahora %zu líneas (%ld bytes).\n",
+    printf("Linea anadida. El archivo tiene ahora %zu lineas (%ld bytes).\n",
            ed->n_lineas, (long)ed->tam);
     return 0;
 }
 
 /* ==================================================================================
- * d [n]  --  Borrar la línea n
+ * d <n>  --  Borrar la linea n
  * ================================================================================== */
 int cmd_d(Editor *ed, const char *arg)
 {
@@ -166,22 +148,22 @@ int cmd_d(Editor *ed, const char *arg)
 
     long n_linea = parsear_numero(arg);
     if (n_linea < 0) {
-        printf("Uso: d <n>   (n debe ser un entero >= 1)\n");
+        printf("Uso: d <n>   (n debe ser un entero mayor o igual a 1)\n");
         return -1;
     }
     if (ed->n_lineas == 0) {
-        printf("Error: el archivo está vacío, no hay nada que borrar.\n");
+        printf("Error: el archivo esta vacio, no hay nada que borrar.\n");
         return -1;
     }
     if ((size_t)n_linea > ed->n_lineas) {
-        printf("Error: la línea %ld no existe (el archivo tiene %zu líneas).\n",
+        printf("Error: la linea %ld no existe (el archivo tiene %zu lineas).\n",
                n_linea, ed->n_lineas);
         return -1;
     }
 
     if (ed_borrar_linea(ed, (size_t)n_linea - 1) == -1) return -1;
 
-    printf("Línea %ld borrada. Quedan %zu líneas (%ld bytes).\n",
+    printf("Linea %ld borrada. Quedan %zu lineas (%ld bytes).\n",
            n_linea, ed->n_lineas, (long)ed->tam);
     return 0;
 }

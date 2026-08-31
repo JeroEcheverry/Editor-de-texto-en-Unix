@@ -1,0 +1,17 @@
+# Archivos generados por la compilacion
+*.o
+editor
+
+# Archivos temporales del editor (comandos u / r) y de las pruebas
+*.swap
+tmp/
+
+# Volcados y depuracion
+core
+*.core
+vgcore.*
+
+# Configuracion local de editores
+.vscode/
+*.swp
+*~
