@@ -22,3 +22,25 @@ Requisitos: `gcc` y `make` sobre Linux.
 ./editor                 # inicia sin archivo abierto
 ./editor notas.txt       # abre (o crea) notas.txt al arrancar
 ```
+
+## Comandos
+
+| Comando | Descripcion |
+| :--- | :--- |
+| `o <archivo>` | Abre un archivo. Si no existe, lo crea con permisos 0644. |
+| `p` | Imprime el archivo completo con numeracion de lineas. |
+| `p <n>` | Imprime unicamente la linea `n`. |
+| `a <texto>` | Anade el texto como una nueva linea al final del archivo. |
+| `d <n>` | Borra la linea `n`, desplazando el resto del archivo. |
+| `i <n> <texto>` | Inserta el texto como nueva linea `n`, desplazando las siguientes. |
+| `s <palabra>` | Busca la palabra e imprime las lineas donde aparece. |
+| `m` | Muestra metadatos del archivo con `fstat`: tamano, permisos, inodo y fecha. |
+| `y <n>` | Copia la linea `n` al portapapeles. |
+| `x <n>` | Pega el portapapeles como nueva linea `n`. |
+| `u` | Deshace la ultima modificacion. |
+| `r` | Rehace la modificacion deshecha. |
+| `h` | Muestra la ayuda. |
+| `q` | Cierra el archivo y termina el programa. |
+
+Las lineas se numeran desde 1.
+

@@ -14,7 +14,7 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -std=gnu99 -g -D_GNU_SOURCE
 
 TARGET  = editor
-SRCS    = main.c archivo.c comandos.c
+SRCS    = main.c repl.c archivo.c edicion.c busqueda.c portapapeles.c historial.c comandos.c
 OBJS    = $(SRCS:.c=.o)
 
 all: $(TARGET)

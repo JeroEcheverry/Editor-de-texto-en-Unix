@@ -82,6 +82,10 @@ int cmd_o(Editor *ed, const char *arg)
         return -1;                     /* ed_abrir ya reporto el error con perror */
     }
 
+    /* Se guarda el estado inicial como version 0 del historial, para que el
+       usuario pueda deshacer hasta el momento en que abrio el archivo. */
+    hist_registrar(ed);
+
     printf("Archivo '%s' abierto (fd=%d, %ld bytes, %zu lineas).\n",
            ed->ruta, ed->fd, (long)ed->tam, ed->n_lineas);
     return 0;
@@ -133,6 +137,7 @@ int cmd_a(Editor *ed, const char *arg)
     if (arg == NULL) arg = "";        /* 'a' sin texto anade una linea en blanco */
 
     if (ed_anexar(ed, arg) == -1) return -1;
+    hist_registrar(ed);
 
     printf("Linea anadida. El archivo tiene ahora %zu lineas (%ld bytes).\n",
            ed->n_lineas, (long)ed->tam);
@@ -162,8 +167,187 @@ int cmd_d(Editor *ed, const char *arg)
     }
 
     if (ed_borrar_linea(ed, (size_t)n_linea - 1) == -1) return -1;
+    hist_registrar(ed);
 
     printf("Linea %ld borrada. Quedan %zu lineas (%ld bytes).\n",
            n_linea, ed->n_lineas, (long)ed->tam);
+    return 0;
+}
+
+/* ==================================================================================
+ * i <n> <texto>  --  Insertar el texto como nueva linea n
+ * ==================================================================================
+ * A diferencia de los comandos anteriores, este recibe DOS argumentos dentro de la
+ * misma cadena: un numero y, a continuacion, el texto.
+ *
+ * La separacion se hace con el segundo parametro de strtol, que devuelve un puntero
+ * al primer caracter que no pudo convertir. Ese puntero marca justo donde termina el
+ * numero y empieza el texto, de modo que no hace falta recorrer la cadena aparte.
+ * ================================================================================== */
+int cmd_i(Editor *ed, const char *arg)
+{
+    if (exigir_archivo(ed) == -1) return -1;
+
+    if (arg == NULL || *arg == '\0') {
+        printf("Uso: i <n> <texto>\n");
+        return -1;
+    }
+
+    char *fin = NULL;
+    errno = 0;
+    long n_linea = strtol(arg, &fin, 10);
+
+    if (fin == arg || errno != 0 || n_linea < 1) {
+        printf("Uso: i <n> <texto>   (n debe ser un entero mayor o igual a 1)\n");
+        return -1;
+    }
+
+    /* Se permite insertar en cualquier linea existente y tambien una posicion mas
+       alla de la ultima, que equivale a anadir al final. */
+    if ((size_t)n_linea > ed->n_lineas + 1) {
+        printf("Error: no se puede insertar en la linea %ld (el archivo tiene %zu lineas).\n",
+               n_linea, ed->n_lineas);
+        return -1;
+    }
+
+    while (*fin == ' ' || *fin == '\t') fin++;   /* Espacios entre el numero y el texto */
+
+    if (ed_insertar(ed, (size_t)n_linea - 1, fin) == -1) return -1;
+    hist_registrar(ed);
+
+    printf("Texto insertado como linea %ld. El archivo tiene ahora %zu lineas (%ld bytes).\n",
+           n_linea, ed->n_lineas, (long)ed->tam);
+    return 0;
+}
+
+/* ==================================================================================
+ * s <palabra>  --  Buscar una palabra en el archivo
+ * ================================================================================== */
+int cmd_s(Editor *ed, const char *arg)
+{
+    if (exigir_archivo(ed) == -1) return -1;
+
+    if (arg == NULL || *arg == '\0') {
+        printf("Uso: s <palabra>\n");
+        return -1;
+    }
+
+    int encontradas = ed_buscar(ed, arg);
+    if (encontradas == -1) return -1;
+
+    if (encontradas == 0) {
+        printf("La palabra '%s' no aparece en el archivo.\n", arg);
+    } else {
+        printf("%d linea(s) contienen '%s'.\n", encontradas, arg);
+    }
+    return 0;
+}
+
+/* ==================================================================================
+ * m  --  Metadatos del archivo (fstat)
+ * ================================================================================== */
+int cmd_m(Editor *ed, const char *arg)
+{
+    (void)arg;   /* Este comando no recibe argumentos. El cast evita el aviso del
+                    compilador por parametro sin usar, manteniendo la firma comun
+                    que exige la tabla de comandos. */
+
+    if (exigir_archivo(ed) == -1) return -1;
+
+    return ed_metadatos(ed);
+}
+
+/* ==================================================================================
+ * y <n>  --  Copiar la linea n al portapapeles
+ * ================================================================================== */
+int cmd_y(Editor *ed, const char *arg)
+{
+    if (exigir_archivo(ed) == -1) return -1;
+
+    long n_linea = parsear_numero(arg);
+    if (n_linea < 0) {
+        printf("Uso: y <n>   (n debe ser un entero mayor o igual a 1)\n");
+        return -1;
+    }
+    if ((size_t)n_linea > ed->n_lineas) {
+        printf("Error: la linea %ld no existe (el archivo tiene %zu lineas).\n",
+               n_linea, ed->n_lineas);
+        return -1;
+    }
+
+    if (ed_copiar(ed, (size_t)n_linea - 1) == -1) return -1;
+
+    printf("Linea %ld copiada al portapapeles (%zu bytes).\n",
+           n_linea, ed->portapapeles_largo);
+    return 0;
+}
+
+/* ==================================================================================
+ * x <n>  --  Pegar el portapapeles como nueva linea n
+ * ================================================================================== */
+int cmd_x(Editor *ed, const char *arg)
+{
+    if (exigir_archivo(ed) == -1) return -1;
+
+    long n_linea = parsear_numero(arg);
+    if (n_linea < 0) {
+        printf("Uso: x <n>   (n debe ser un entero mayor o igual a 1)\n");
+        return -1;
+    }
+    if ((size_t)n_linea > ed->n_lineas + 1) {
+        printf("Error: no se puede pegar en la linea %ld (el archivo tiene %zu lineas).\n",
+               n_linea, ed->n_lineas);
+        return -1;
+    }
+
+    if (ed_pegar(ed, (size_t)n_linea - 1) == -1) return -1;
+    hist_registrar(ed);
+
+    printf("Portapapeles pegado como linea %ld. El archivo tiene ahora %zu lineas.\n",
+           n_linea, ed->n_lineas);
+    return 0;
+}
+
+/* ==================================================================================
+ * u  --  Deshacer
+ * ================================================================================== */
+int cmd_u(Editor *ed, const char *arg)
+{
+    (void)arg;
+
+    if (exigir_archivo(ed) == -1) return -1;
+
+    int r = hist_deshacer(ed);
+    if (r == -1) return -1;
+
+    if (r == 1) {
+        printf("No hay nada mas que deshacer.\n");
+        return 0;
+    }
+
+    printf("Deshecho. El archivo tiene ahora %zu lineas (%ld bytes).\n",
+           ed->n_lineas, (long)ed->tam);
+    return 0;
+}
+
+/* ==================================================================================
+ * r  --  Rehacer
+ * ================================================================================== */
+int cmd_r(Editor *ed, const char *arg)
+{
+    (void)arg;
+
+    if (exigir_archivo(ed) == -1) return -1;
+
+    int r = hist_rehacer(ed);
+    if (r == -1) return -1;
+
+    if (r == 1) {
+        printf("No hay nada que rehacer.\n");
+        return 0;
+    }
+
+    printf("Rehecho. El archivo tiene ahora %zu lineas (%ld bytes).\n",
+           ed->n_lineas, (long)ed->tam);
     return 0;
 }

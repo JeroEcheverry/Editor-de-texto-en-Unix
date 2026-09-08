@@ -1,10 +1,14 @@
 /**
  * ====================================================================================
- *  archivo.c  --  Capa de disco
+ *  archivo.c  --  Capa de disco: apertura, indexado y lectura
  * ====================================================================================
- *  Unico modulo que ejecuta llamadas al sistema sobre el archivo de texto.
+ *  Contiene el ciclo de vida del archivo (abrir y cerrar), la construccion del
+ *  indice de lineas, la lectura de lineas y las utilidades de entrada/salida que
+ *  usa el resto del proyecto.
  *
- *  Syscalls utilizadas: open(2), read(2), write(2), lseek(2), ftruncate(2), close(2)
+ *  Las operaciones que MODIFICAN el archivo estan en edicion.c.
+ *
+ *  Syscalls utilizadas: open(2), read(2), write(2), lseek(2), close(2)
  *
  *  Segun el enunciado, queda prohibido el uso de fopen, fread, fwrite y fclose
  *  para manipular el archivo. Ninguna de esas funciones aparece en este archivo.
@@ -96,6 +100,11 @@ void ed_init(Editor *ed)
     ed->n_lineas = 0;
     ed->cap      = 0;
     ed->tam      = 0;
+
+    ed->portapapeles       = NULL;
+    ed->portapapeles_largo = 0;
+
+    hist_init(ed);
 }
 
 int ed_esta_abierto(const Editor *ed)
@@ -161,6 +170,11 @@ int ed_abrir(Editor *ed, const char *ruta)
 int ed_cerrar(Editor *ed)
 {
     int r = 0;
+
+    /* Los archivos temporales de /tmp se eliminan con unlink(2) antes de cerrar,
+       para no dejar basura en el sistema al terminar el programa. */
+    hist_limpiar(ed);
+    ed_portapapeles_liberar(ed);
 
     if (ed->fd >= 0) {
         if (close(ed->fd) == -1) {
@@ -328,116 +342,44 @@ int ed_imprimir_linea(Editor *ed, size_t idx)
 }
 
 /**
- * Anade 'texto' como una nueva linea al final del archivo.
+ * Copia la linea 'idx' (base 0) a un buffer nuevo reservado con malloc.
  *
- * Si el archivo no termina en '\n', se antepone uno; de lo contrario el texto
- * nuevo quedaria pegado al final de la ultima linea existente.
+ * El '\n' final no se incluye y el buffer queda terminado en '\0', de modo que
+ * puede tratarse como una cadena de C normal. El tamano se ajusta a la linea, asi
+ * que no hay limite de longitud ni riesgo de truncamiento.
  *
- * La linea completa se arma en un buffer reservado con malloc y se envia con un
- * unico write(2). Agrupar la escritura reduce el numero de llamadas al sistema y
- * evita que otro proceso pueda leer el archivo con la linea escrita a medias.
+ * El llamador es responsable de liberar el buffer con free().
  *
- * Retorna 0 en exito, -1 en error.
+ * Retorna el puntero al buffer, o NULL si hubo error.
  */
-int ed_anexar(Editor *ed, const char *texto)
+char *ed_linea_a_memoria(Editor *ed, size_t idx, size_t *largo_out)
 {
-    if (!ed_esta_abierto(ed)) return -1;
+    if (!ed_esta_abierto(ed)) return NULL;
+    if (idx >= ed->n_lineas)  return NULL;
 
-    size_t largo       = strlen(texto);
-    int    falta_salto = 0;
+    size_t largo = ed->lineas[idx].largo;
 
-    /* Se lee el ultimo byte del archivo para saber si termina en salto de linea.
-       El desplazamiento -1 respecto a SEEK_END corresponde a ese ultimo byte. */
-    if (ed->tam > 0) {
-        char ultimo;
-        if (lseek(ed->fd, -1, SEEK_END) == -1) { perror("lseek"); return -1; }
-        if (leer_exacto(ed->fd, &ultimo, 1) != 1) return -1;
-        if (ultimo != '\n') falta_salto = 1;
-    }
-
-    size_t n_total = largo + 1 + (falta_salto ? 1 : 0);
-
-    char *buf = malloc(n_total);
+    char *buf = malloc(largo + 1);
     if (buf == NULL) {
         perror("malloc");
-        return -1;
+        return NULL;
     }
 
-    size_t n = 0;
-    if (falta_salto) buf[n++] = '\n';
-    memcpy(buf + n, texto, largo);
-    n += largo;
-    buf[n++] = '\n';
-
-    if (lseek(ed->fd, 0, SEEK_END) == -1) {
+    if (lseek(ed->fd, ed->lineas[idx].offset, SEEK_SET) == -1) {
         perror("lseek");
         free(buf);
-        return -1;
+        return NULL;
     }
-    if (escribir_todo(ed->fd, buf, n) == -1) {
+    if (leer_exacto(ed->fd, buf, largo) != (ssize_t)largo) {
         free(buf);
-        return -1;
+        return NULL;
     }
 
-    free(buf);
+    /* Se descarta el salto de linea final si lo hay. */
+    if (largo > 0 && buf[largo - 1] == '\n') largo--;
 
-    return ed_indexar(ed);          /* El archivo cambio: se rehace el indice */
-}
+    buf[largo] = '\0';
+    if (largo_out) *largo_out = largo;
 
-/**
- * Borra la linea 'idx' (base 0) del archivo.
- *
- * No existe una llamada al sistema que elimine bytes del interior de un archivo.
- * El borrado se implementa en dos pasos:
- *
- *   1. Desplazamiento: todo lo que viene despues de la linea se copia hacia
- *      atras, sobrescribiendo los bytes de la linea eliminada.
- *   2. Recorte: al terminar, el archivo conserva una copia sobrante al final.
- *      ftruncate(2) lo reduce al tamano correcto.
- *
- * El desplazamiento se hace por bloques de ED_BLOQUE bytes y no cargando el
- * archivo completo en memoria, de modo que el editor funciona con archivos mas
- * grandes que la memoria disponible.
- *
- * Retorna 0 en exito, -1 en error.
- */
-int ed_borrar_linea(Editor *ed, size_t idx)
-{
-    if (!ed_esta_abierto(ed)) return -1;
-    if (idx >= ed->n_lineas)  return -1;
-
-    off_t  inicio = ed->lineas[idx].offset;
-    size_t largo  = ed->lineas[idx].largo;
-
-    off_t src = inicio + (off_t)largo;   /* Origen: primer byte despues de la linea */
-    off_t dst = inicio;                  /* Destino: donde empezaba la linea        */
-
-    char bloque[ED_BLOQUE];
-
-    while (src < ed->tam) {
-        off_t  restante = ed->tam - src;
-        size_t pedir    = (restante > ED_BLOQUE) ? ED_BLOQUE : (size_t)restante;
-
-        /* Leer desde la posicion de origen */
-        if (lseek(ed->fd, src, SEEK_SET) == -1) { perror("lseek"); return -1; }
-        ssize_t leidos = leer_exacto(ed->fd, bloque, pedir);
-        if (leidos <= 0) break;
-
-        /* Escribir en la posicion de destino */
-        if (lseek(ed->fd, dst, SEEK_SET) == -1) { perror("lseek"); return -1; }
-        if (escribir_todo(ed->fd, bloque, (size_t)leidos) == -1) return -1;
-
-        src += leidos;
-        dst += leidos;
-    }
-
-    /* Se recorta la copia sobrante del final. Si la linea borrada era la ultima,
-       el bucle anterior no movio ningun byte y este ftruncate hace todo el trabajo. */
-    off_t nuevo_tam = ed->tam - (off_t)largo;
-    if (ftruncate(ed->fd, nuevo_tam) == -1) {
-        perror("ftruncate");
-        return -1;
-    }
-
-    return ed_indexar(ed);
+    return buf;
 }
