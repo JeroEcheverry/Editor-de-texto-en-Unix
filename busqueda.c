@@ -1,12 +1,5 @@
-/**
- * ====================================================================================
- *  busqueda.c  --  Busqueda de texto y metadatos del archivo
- * ====================================================================================
- *  Implementa los comandos 's' (buscar una palabra) y 'm' (mostrar metadatos).
- *
- *  Syscall destacada: fstat(2), que consulta la informacion que el sistema de
- *  archivos guarda en el inodo: tamano, permisos, numero de inodo y fechas.
- * ====================================================================================
+/*
+ * busqueda.c -- comandos 's' (buscar palabra) y 'm' (metadatos).
  */
 
 #include "editor.h"
@@ -18,23 +11,16 @@
 #include <string.h>     /* strstr                            */
 #include <time.h>       /* localtime, strftime               */
 
-/* ==================================================================================
- * s <palabra>  --  Buscar una palabra en el archivo
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* s <palabra>  --  buscar en el archivo                             */
+/* ---------------------------------------------------------------- */
 
-/**
- * Busca 'palabra' en todas las lineas del archivo e imprime las coincidencias
- * con su numero de linea.
+/*
+ * Busca 'palabra' como subcadena en cada linea del archivo (no busca
+ * palabra completa: "casa" tambien encuentra "casaca") e imprime las
+ * lineas donde aparece.
  *
- * Cada linea se copia a memoria con ed_linea_a_memoria, que entrega una cadena
- * terminada en '\0' del tamano exacto de la linea. Eso permite usar strstr, que
- * es la funcion estandar de C para buscar una subcadena dentro de otra: devuelve
- * un puntero a la primera aparicion, o NULL si no la encuentra.
- *
- * La busqueda es de subcadena, no de palabra completa: buscar "casa" tambien
- * encuentra "casaca".
- *
- * Retorna el numero de lineas en las que aparecio la palabra, o -1 en error.
+ * Retorna el numero de lineas donde aparecio, o -1 en error.
  */
 int ed_buscar(Editor *ed, const char *palabra)
 {
@@ -52,60 +38,34 @@ int ed_buscar(Editor *ed, const char *palabra)
             encontradas++;
         }
 
-        free(texto);   /* La memoria se libera en cada vuelta del bucle */
+        free(texto);
     }
 
     return encontradas;
 }
 
-/* ==================================================================================
- * m  --  Metadatos del archivo
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* m  --  metadatos del archivo                                       */
+/* ---------------------------------------------------------------- */
 
-/**
- * Convierte el campo de permisos de struct stat a la notacion de nueve caracteres
- * que muestra 'ls -l', por ejemplo "rw-r--r--".
- *
- * El campo st_mode es un entero en el que cada permiso ocupa un bit. Las macros
- * S_IRUSR, S_IWUSR, etc. son las mascaras que permiten consultar cada bit con el
- * operador AND: si el resultado es distinto de cero, el permiso esta activo.
- *
- * El buffer 'salida' debe tener espacio para al menos 10 caracteres.
- */
+/* Convierte st_mode a la notacion de 9 caracteres de 'ls -l' (rwxrwxrwx). */
 static void permisos_a_texto(mode_t modo, char *salida)
 {
-    salida[0] = (modo & S_IRUSR) ? 'r' : '-';   /* Dueno: lectura    */
-    salida[1] = (modo & S_IWUSR) ? 'w' : '-';   /* Dueno: escritura  */
-    salida[2] = (modo & S_IXUSR) ? 'x' : '-';   /* Dueno: ejecucion  */
-    salida[3] = (modo & S_IRGRP) ? 'r' : '-';   /* Grupo             */
+    salida[0] = (modo & S_IRUSR) ? 'r' : '-';
+    salida[1] = (modo & S_IWUSR) ? 'w' : '-';
+    salida[2] = (modo & S_IXUSR) ? 'x' : '-';
+    salida[3] = (modo & S_IRGRP) ? 'r' : '-';
     salida[4] = (modo & S_IWGRP) ? 'w' : '-';
     salida[5] = (modo & S_IXGRP) ? 'x' : '-';
-    salida[6] = (modo & S_IROTH) ? 'r' : '-';   /* Otros             */
+    salida[6] = (modo & S_IROTH) ? 'r' : '-';
     salida[7] = (modo & S_IWOTH) ? 'w' : '-';
     salida[8] = (modo & S_IXOTH) ? 'x' : '-';
     salida[9] = '\0';
 }
 
-/**
- * Imprime los metadatos del archivo abierto.
- *
- * Se usa fstat(2) y no stat(2). La diferencia es el primer parametro: stat recibe
- * una ruta y fstat recibe un descriptor ya abierto. Como el editor mantiene el
- * archivo abierto, fstat consulta exactamente el mismo archivo sobre el que se
- * esta trabajando, sin volver a resolver el nombre. Si alguien renombrara o
- * reemplazara el archivo mientras el editor esta corriendo, stat informaria sobre
- * el archivo nuevo y fstat sigue informando sobre el que realmente se edita.
- *
- * Datos que devuelve struct stat y que se muestran aqui:
- *   st_size  : tamano en bytes.
- *   st_mode  : tipo de archivo y permisos.
- *   st_ino   : numero de inodo, el identificador del archivo dentro de su
- *              sistema de archivos. El nombre es solo una entrada de directorio
- *              que apunta a este numero.
- *   st_nlink : cuantos nombres (enlaces duros) apuntan a ese inodo.
- *   st_mtime : fecha y hora de la ultima modificacion del contenido.
- *
- * Retorna 0 en exito, -1 en error.
+/*
+ * Imprime los metadatos del archivo abierto con fstat(2): tamano, permisos,
+ * numero de inodo, cantidad de enlaces y fecha de modificacion.
  */
 int ed_metadatos(Editor *ed)
 {
@@ -121,8 +81,6 @@ int ed_metadatos(Editor *ed)
     char permisos[10];
     permisos_a_texto(st.st_mode, permisos);
 
-    /* st_mtime es un tiempo en segundos desde el 1 de enero de 1970 (epoch Unix).
-       localtime lo convierte a fecha y hora local, y strftime le da formato. */
     char fecha[64];
     struct tm *t = localtime(&st.st_mtime);
     if (t != NULL) {

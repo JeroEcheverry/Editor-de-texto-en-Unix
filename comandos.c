@@ -1,18 +1,7 @@
-/**
- * ====================================================================================
- *  comandos.c  --  Capa de comandos
- * ====================================================================================
- *  Traduce lo que escribe el usuario en llamadas a la capa de disco.
- *
- *  Responsabilidades de esta capa:
- *   - Validar los argumentos antes de acceder al archivo.
- *   - Convertir la numeracion que ve el usuario (linea 1, 2, 3...) a los indices
- *     del arreglo interno (0, 1, 2...).
- *   - Informar al usuario del resultado de cada operacion.
- *
- *  Esta capa no ejecuta llamadas al sistema sobre el archivo de texto: delega
- *  todas esas operaciones en archivo.c.
- * ====================================================================================
+/*
+ * comandos.c -- capa de comandos: valida lo que escribe el usuario,
+ * convierte la numeracion de lineas (1, 2, 3...) a indices (0, 1, 2...)
+ * y llama a las funciones de archivo.c / edicion.c.
  */
 
 #include "editor.h"
@@ -23,18 +12,14 @@
 #include <string.h>   /* strlen         */
 #include <errno.h>    /* errno          */
 
-/* ==================================================================================
- * Utilidades internas
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* Utilidades internas                                                */
+/* ---------------------------------------------------------------- */
 
-/**
- * Convierte una cadena en un numero de linea valido.
- *
- * Se usa strtol y no atoi porque atoi no reporta errores: atoi("hola") devuelve 0
- * sin indicar que la conversion fallo, y ese 0 se colaria como numero de linea.
- *
- * Retorna: el numero convertido (siempre >= 1), o -1 si la cadena no representa
- *          un entero positivo valido.
+/*
+ * Convierte una cadena a numero de linea (>= 1). Se usa strtol y no atoi
+ * porque atoi no distingue "0 valido" de "no se pudo convertir".
+ * Retorna el numero, o -1 si no es un entero positivo valido.
  */
 static long parsear_numero(const char *txt)
 {
@@ -44,21 +29,18 @@ static long parsear_numero(const char *txt)
     errno = 0;
     long v = strtol(txt, &fin, 10);
 
-    if (errno != 0)   return -1;   /* Desbordamiento del rango de long */
-    if (fin == txt)   return -1;   /* No habia ningun digito           */
+    if (errno != 0)   return -1;
+    if (fin == txt)   return -1;
 
     while (*fin == ' ' || *fin == '\t') fin++;
 
-    if (*fin != '\0') return -1;   /* Quedaban caracteres sobrantes    */
-    if (v < 1)        return -1;   /* Las lineas se numeran desde 1    */
+    if (*fin != '\0') return -1;
+    if (v < 1)        return -1;
 
     return v;
 }
 
-/**
- * Verifica que haya un archivo abierto antes de operar sobre el.
- * Retorna 0 si lo hay, -1 si no (e imprime el mensaje correspondiente).
- */
+/* Verifica que haya un archivo abierto. Retorna 0 si lo hay, -1 si no. */
 static int exigir_archivo(const Editor *ed)
 {
     if (!ed_esta_abierto(ed)) {
@@ -68,9 +50,9 @@ static int exigir_archivo(const Editor *ed)
     return 0;
 }
 
-/* ==================================================================================
- * o <archivo>  --  Abrir o crear un archivo
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* o <archivo>  --  abrir o crear                                     */
+/* ---------------------------------------------------------------- */
 int cmd_o(Editor *ed, const char *arg)
 {
     if (arg == NULL || *arg == '\0') {
@@ -79,26 +61,23 @@ int cmd_o(Editor *ed, const char *arg)
     }
 
     if (ed_abrir(ed, arg) == -1) {
-        return -1;                     /* ed_abrir ya reporto el error con perror */
+        return -1;   /* el error ya se reporto con perror */
     }
 
-    /* Se guarda el estado inicial como version 0 del historial, para que el
-       usuario pueda deshacer hasta el momento en que abrio el archivo. */
-    hist_registrar(ed);
+    hist_registrar(ed);   /* estado inicial, version 0 del historial */
 
     printf("Archivo '%s' abierto (fd=%d, %ld bytes, %zu lineas).\n",
            ed->ruta, ed->fd, (long)ed->tam, ed->n_lineas);
     return 0;
 }
 
-/* ==================================================================================
- * p [n]  --  Imprimir la linea n, o el archivo completo si no se indica n
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* p [n]  --  imprimir linea n, o todo el archivo                     */
+/* ---------------------------------------------------------------- */
 int cmd_p(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
 
-    /* Caso 1: 'p' sin argumento imprime todo el archivo con numeracion. */
     if (arg == NULL || *arg == '\0') {
         if (ed->n_lineas == 0) {
             printf("(archivo vacio)\n");
@@ -112,7 +91,6 @@ int cmd_p(Editor *ed, const char *arg)
         return 0;
     }
 
-    /* Caso 2: 'p n' imprime una sola linea. */
     long n_linea = parsear_numero(arg);
     if (n_linea < 0) {
         printf("Uso: p [n]   (n debe ser un entero mayor o igual a 1)\n");
@@ -127,14 +105,14 @@ int cmd_p(Editor *ed, const char *arg)
     return ed_imprimir_linea(ed, (size_t)n_linea - 1);
 }
 
-/* ==================================================================================
- * a <texto>  --  Anadir el texto como una nueva linea al final
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* a <texto>  --  anadir linea al final                                */
+/* ---------------------------------------------------------------- */
 int cmd_a(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
 
-    if (arg == NULL) arg = "";        /* 'a' sin texto anade una linea en blanco */
+    if (arg == NULL) arg = "";   /* sin texto anade una linea en blanco */
 
     if (ed_anexar(ed, arg) == -1) return -1;
     hist_registrar(ed);
@@ -144,9 +122,9 @@ int cmd_a(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * d <n>  --  Borrar la linea n
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* d <n>  --  borrar linea n                                          */
+/* ---------------------------------------------------------------- */
 int cmd_d(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
@@ -174,16 +152,11 @@ int cmd_d(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * i <n> <texto>  --  Insertar el texto como nueva linea n
- * ==================================================================================
- * A diferencia de los comandos anteriores, este recibe DOS argumentos dentro de la
- * misma cadena: un numero y, a continuacion, el texto.
- *
- * La separacion se hace con el segundo parametro de strtol, que devuelve un puntero
- * al primer caracter que no pudo convertir. Ese puntero marca justo donde termina el
- * numero y empieza el texto, de modo que no hace falta recorrer la cadena aparte.
- * ================================================================================== */
+/*
+ * i <n> <texto>  --  insertar texto como nueva linea n.
+ * strtol deja en 'fin' el primer caracter que no pudo convertir, que es
+ * justo donde termina el numero y empieza el texto.
+ */
 int cmd_i(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
@@ -202,15 +175,14 @@ int cmd_i(Editor *ed, const char *arg)
         return -1;
     }
 
-    /* Se permite insertar en cualquier linea existente y tambien una posicion mas
-       alla de la ultima, que equivale a anadir al final. */
+    /* se permite insertar una posicion mas alla de la ultima (= anadir al final) */
     if ((size_t)n_linea > ed->n_lineas + 1) {
         printf("Error: no se puede insertar en la linea %ld (el archivo tiene %zu lineas).\n",
                n_linea, ed->n_lineas);
         return -1;
     }
 
-    while (*fin == ' ' || *fin == '\t') fin++;   /* Espacios entre el numero y el texto */
+    while (*fin == ' ' || *fin == '\t') fin++;
 
     if (ed_insertar(ed, (size_t)n_linea - 1, fin) == -1) return -1;
     hist_registrar(ed);
@@ -220,9 +192,9 @@ int cmd_i(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * s <palabra>  --  Buscar una palabra en el archivo
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* s <palabra>  --  buscar en el archivo                              */
+/* ---------------------------------------------------------------- */
 int cmd_s(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
@@ -243,23 +215,21 @@ int cmd_s(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * m  --  Metadatos del archivo (fstat)
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* m  --  metadatos del archivo (fstat)                                */
+/* ---------------------------------------------------------------- */
 int cmd_m(Editor *ed, const char *arg)
 {
-    (void)arg;   /* Este comando no recibe argumentos. El cast evita el aviso del
-                    compilador por parametro sin usar, manteniendo la firma comun
-                    que exige la tabla de comandos. */
+    (void)arg;   /* este comando no recibe argumentos */
 
     if (exigir_archivo(ed) == -1) return -1;
 
     return ed_metadatos(ed);
 }
 
-/* ==================================================================================
- * y <n>  --  Copiar la linea n al portapapeles
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* y <n>  --  copiar linea n al portapapeles                          */
+/* ---------------------------------------------------------------- */
 int cmd_y(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
@@ -282,9 +252,9 @@ int cmd_y(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * x <n>  --  Pegar el portapapeles como nueva linea n
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* x <n>  --  pegar el portapapeles como nueva linea n                */
+/* ---------------------------------------------------------------- */
 int cmd_x(Editor *ed, const char *arg)
 {
     if (exigir_archivo(ed) == -1) return -1;
@@ -308,9 +278,9 @@ int cmd_x(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * u  --  Deshacer
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* u  --  deshacer                                                     */
+/* ---------------------------------------------------------------- */
 int cmd_u(Editor *ed, const char *arg)
 {
     (void)arg;
@@ -330,9 +300,9 @@ int cmd_u(Editor *ed, const char *arg)
     return 0;
 }
 
-/* ==================================================================================
- * r  --  Rehacer
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* r  --  rehacer                                                      */
+/* ---------------------------------------------------------------- */
 int cmd_r(Editor *ed, const char *arg)
 {
     (void)arg;

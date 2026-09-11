@@ -1,28 +1,10 @@
-/**
- * ====================================================================================
- *  cat_edicion.c  --  Integracion del editor con el shell eafitOS
- * ====================================================================================
- *  Universidad EAFIT - Sistemas Operativos (SO2026B) - Parcial 1
+/*
+ * cat_edicion.c -- integracion del editor con el shell eafitOS.
+ * Universidad EAFIT - Sistemas Operativos (SO2026B) - Parcial 1
  *
- *  Este archivo es el unico punto de contacto entre el editor y el shell de la
- *  asignatura. Cumple el contrato que impone la tabla de comandos del shell
- *  (int (*handler)(int argc, char **argv)) y traduce esa llamada al bucle propio
- *  del editor.
- *
- *  Se registro en una categoria nueva ("edicion") en vez de meterlo en "datos"
- *  porque el editor no se comporta como los demas comandos del shell: esos reciben
- *  argumentos, ejecutan un par de syscalls, imprimen el resultado y devuelven el
- *  control de inmediato. El editor en cambio toma el control de stdin con su
- *  propio ciclo lectura-evaluacion-impresion, mantiene estado vivo entre comandos
- *  (descriptor abierto, indice de lineas, portapapeles, historial) y representa
- *  una sesion completa de trabajo, no una operacion puntual que se pueda trazar
- *  como las demas.
- *
- *  Tambien se penso en lanzarlo como binario externo con fork(2)+execvp(3), como
- *  hace p_exec, pero eso obligaria a mantener dos ejecutables separados. Se
- *  prefirio compilarlo junto al shell porque el enunciado pide integracion
- *  funcional, no solo poder invocarlo desde afuera.
- * ====================================================================================
+ * Registra el comando 'e_edit' del shell y lo conecta con el bucle propio
+ * del editor (repl.c). Se compilo junto al shell en vez de como programa
+ * externo por simplicidad, ya que igual comparten el mismo repositorio.
  */
 
 #include "shell.h"
@@ -30,20 +12,10 @@
 
 #include <stdio.h>
 
-/**
- * e_edit [archivo]  --  Abre el editor de texto integrado.
- *
- * Recibe los argumentos ya divididos por el tokenizador del shell. El archivo es
- * opcional: sin el, el editor arranca sin ningun archivo abierto y el usuario lo
- * abre desde adentro con el comando 'o'.
- *
- * El control regresa al shell cuando el usuario escribe 'q' dentro del editor.
- * Todos los recursos (descriptor, indice, portapapeles y archivos temporales de
- * /tmp) se liberan dentro de editor_ejecutar antes de retornar, de modo que el
- * shell continua sin descriptores ni memoria pendientes.
- *
- * Retorna 0 en exito y 1 si los argumentos son invalidos, siguiendo la convencion
- * de los demas comandos del shell.
+/*
+ * e_edit [archivo]  --  abre el editor de texto integrado.
+ * El archivo es opcional; sin el, el editor arranca sin nada abierto y se
+ * puede abrir despues con el comando 'o'. Se vuelve al shell con 'q'.
  */
 int cmd_e_edit(int argc, char **argv)
 {

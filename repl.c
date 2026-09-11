@@ -1,24 +1,14 @@
-/**
- * ====================================================================================
- *  repl.c  --  Bucle interactivo y despacho de comandos del editor
- * ====================================================================================
- *  Universidad EAFIT - Sistemas Operativos (SO2026B) - Parcial 1
+/*
+ * repl.c -- bucle interactivo y despacho de comandos del editor.
+ * Universidad EAFIT - Sistemas Operativos (SO2026B) - Parcial 1
  *
- *  El editor funciona como un ciclo lectura-evaluacion-impresion:
- *    1. Lee una linea del teclado con fgets().
- *    2. Toma el primer caracter como comando y el resto como argumento.
- *    3. Ejecuta el manejador correspondiente.
- *    4. Repite hasta recibir 'q' o Ctrl+D.
+ * Ciclo lectura-evaluacion-impresion: lee una linea con fgets, toma el
+ * primer caracter como comando y el resto como argumento, ejecuta el
+ * manejador correspondiente y repite hasta 'q' o Ctrl+D.
  *
- *  El bucle esta en una funcion (editor_ejecutar) y no dentro de main, para que
- *  pueda invocarse desde dos lugares distintos:
- *    - main.c, cuando el editor se ejecuta como programa independiente.
- *    - cat_edicion.c, cuando lo invoca el shell eafitOS.
- *
- *  El enunciado permite printf y fgets unicamente para leer los comandos por STDIN
- *  e imprimir en consola. El archivo de texto se manipula siempre con llamadas al
- *  sistema, en archivo.c y edicion.c.
- * ====================================================================================
+ * El bucle esta en editor_ejecutar (no en main) para poder llamarlo tanto
+ * desde main.c (programa independiente) como desde cat_edicion.c (shell
+ * eafitOS).
  */
 #include "editor.h"
 
@@ -27,25 +17,22 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_ENTRADA 8192   /* Longitud maxima de una linea de comando */
+#define MAX_ENTRADA 8192
 
-/* ==================================================================================
- * Tabla de comandos
- * ==================================================================================
- * Se sigue el mismo patron del shell de la asignatura: una tabla de datos con
- * punteros a funcion, en lugar de una cadena de if/else.
- *
- * Agregar un comando nuevo consiste en escribir su manejador y anadir una fila a
- * la tabla. El bucle principal no se modifica.
- */
+/* ---------------------------------------------------------------- */
+/* Tabla de comandos                                                   */
+/* ---------------------------------------------------------------- */
+/* Mismo patron del shell de la asignatura: tabla de punteros a funcion
+   en vez de una cadena de if/else. Agregar un comando es escribir su
+   manejador y anadir una fila aqui. */
 
 typedef int (*Manejador)(Editor *ed, const char *arg);
 
 typedef struct {
-    char        clave;        /* Letra que escribe el usuario     */
-    const char *uso;          /* Sintaxis, para el menu de ayuda  */
-    const char *descripcion;  /* Que hace el comando              */
-    Manejador   fn;           /* Funcion que lo implementa        */
+    char        clave;
+    const char *uso;
+    const char *descripcion;
+    Manejador   fn;
 } ComandoEd;
 
 static const ComandoEd tabla[] = {
@@ -64,9 +51,6 @@ static const ComandoEd tabla[] = {
 
 static const int n_comandos = (int)(sizeof(tabla) / sizeof(tabla[0]));
 
-/* ==================================================================================
- * Ayuda
- * ================================================================================== */
 static void mostrar_ayuda(void)
 {
     printf("\nComandos disponibles:\n");
@@ -78,27 +62,22 @@ static void mostrar_ayuda(void)
     printf("\n");
 }
 
-/* ==================================================================================
- * Separacion del comando y su argumento
- * ==================================================================================
- * A diferencia del shell de la asignatura, aqui no se divide la entrada en un
- * arreglo de tokens: el comando es un unico caracter y todo lo que sigue es el
- * argumento, tal cual lo escribio el usuario.
+/*
+ * Separa el comando (primer caracter) de su argumento. A diferencia del
+ * shell de la asignatura, aqui no se tokeniza: todo lo que sigue al
+ * comando es el argumento tal cual, para que 'a hola mundo' conserve los
+ * espacios (mismo comportamiento que el editor ed de Unix).
  *
- * Esto permite que 'a hola mundo con espacios' conserve los espacios sin tener que
- * volver a unir los tokens. Es el mismo comportamiento del editor ed de Unix.
- *
- * Devuelve un puntero al argumento dentro de la misma cadena. Nunca devuelve NULL:
- * si no hay argumento, apunta al terminador nulo.
+ * Nunca devuelve NULL: si no hay argumento, apunta al terminador nulo.
  */
 static char *separar_argumento(char *linea)
 {
-    char *p = linea + 1;                     /* Se omite el caracter del comando */
-    while (*p == ' ' || *p == '\t') p++;     /* Se omiten los espacios iniciales */
+    char *p = linea + 1;
+    while (*p == ' ' || *p == '\t') p++;
     return p;
 }
 
-/* Elimina el salto de linea que fgets deja al final de la cadena. */
+/* Quita el salto de linea que deja fgets al final de la cadena. */
 static void quitar_salto(char *s)
 {
     size_t n = strlen(s);
@@ -107,22 +86,15 @@ static void quitar_salto(char *s)
     }
 }
 
-/* ==================================================================================
- * Bucle principal del editor
- * ==================================================================================
- * 'ruta_inicial' es el archivo que se abre al arrancar, o NULL para empezar sin
- * ningun archivo abierto.
- *
- * Toda la memoria y el descriptor se liberan antes de retornar, de modo que quien
- * llame a esta funcion (el programa independiente o el shell) recupera el control
- * sin recursos pendientes.
- *
- * Retorna 0 siempre: la salida del editor no es un error para quien lo invoca.
+/*
+ * Bucle principal del editor. 'ruta_inicial' es el archivo a abrir al
+ * arrancar, o NULL para empezar sin archivo. Libera todos los recursos
+ * antes de retornar. Siempre retorna 0.
  */
 int editor_ejecutar(const char *ruta_inicial)
 {
     Editor ed;
-    ed_init(&ed);                 /* Estado inicial conocido antes de cualquier operacion */
+    ed_init(&ed);
 
     char entrada[MAX_ENTRADA];
 
@@ -132,10 +104,8 @@ int editor_ejecutar(const char *ruta_inicial)
 
     while (1) {
         printf("ed> ");
-        fflush(stdout);           /* El prompt no lleva salto de linea: hay que forzar
-                                     el vaciado del buffer para que aparezca en pantalla */
+        fflush(stdout);   /* el prompt no lleva '\n', hay que forzar el vaciado */
 
-        /* fgets devuelve NULL al llegar al fin de la entrada (Ctrl+D). */
         if (fgets(entrada, sizeof(entrada), stdin) == NULL) {
             printf("\n");
             break;
@@ -143,20 +113,18 @@ int editor_ejecutar(const char *ruta_inicial)
 
         quitar_salto(entrada);
 
-        if (entrada[0] == '\0') continue;   /* Linea vacia: no es un error */
+        if (entrada[0] == '\0') continue;
 
         char clave = entrada[0];
 
-        /* Comandos atendidos por el propio bucle */
         if (clave == 'q') {
-            break;                /* La liberacion de recursos ocurre al salir del bucle */
+            break;
         }
         if (clave == 'h') {
             mostrar_ayuda();
             continue;
         }
 
-        /* Busqueda del manejador en la tabla de comandos */
         char *arg = separar_argumento(entrada);
 
         int encontrado = 0;
@@ -173,8 +141,6 @@ int editor_ejecutar(const char *ruta_inicial)
         }
     }
 
-    /* Unico punto de salida del programa: garantiza que el descriptor se cierre y
-       la memoria se libere sin importar por que camino se termine el bucle. */
     ed_cerrar(&ed);
     printf("Editor cerrado. Hasta luego.\n");
 

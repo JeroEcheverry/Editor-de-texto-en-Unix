@@ -1,36 +1,16 @@
-/**
- * ====================================================================================
- *  historial.c  --  Deshacer y rehacer mediante archivos de intercambio (swap)
- * ====================================================================================
- *  Implementa los comandos 'u' (deshacer) y 'r' (rehacer).
+/*
+ * historial.c -- deshacer y rehacer con archivos de intercambio en /tmp.
+ * Implementa los comandos 'u' (deshacer) y 'r' (rehacer).
  *
- *  ESTRATEGIA
+ * Cada vez que el archivo cambia se guarda una copia completa en /tmp
+ * (una "version"). El historial es esa lista mas un indice 'actual' que
+ * marca cual version corresponde al contenido real del archivo. Deshacer
+ * retrocede el indice y restaura esa version; rehacer lo avanza. Si se
+ * modifica el archivo despues de deshacer, las versiones que quedaban por
+ * delante se descartan.
  *
- *  Cada vez que el archivo cambia, se guarda una copia completa de su contenido en
- *  un archivo temporal dentro de /tmp. Esa copia es una "version". El historial es
- *  la lista de versiones mas un indice que senala cual de ellas corresponde al
- *  contenido que hay en este momento en el archivo real.
- *
- *      rutas[0]      rutas[1]      rutas[2]      rutas[3]
- *      (al abrir)    (tras 'a')    (tras 'd')    (tras 'i')
- *                                      ^
- *                                    actual
- *
- *  Deshacer retrocede el indice y copia esa version sobre el archivo real.
- *  Rehacer lo avanza y hace lo mismo. Si despues de deshacer se hace una
- *  modificacion nueva, las versiones que quedaban por delante se descartan: ese es
- *  el comportamiento habitual del deshacer en cualquier editor.
- *
- *  POR QUE /tmp Y NO MEMORIA
- *
- *  Guardar el historial en archivos y no en RAM permite que el editor deshaga
- *  cambios sobre archivos mas grandes que la memoria disponible, que es la misma
- *  razon por la que el editor no carga el texto en memoria. El precio es una copia
- *  completa por version, aceptable para los tamanos de esta evaluacion.
- *
- *  Syscalls utilizadas: open(2), read(2), write(2), lseek(2), ftruncate(2),
- *                       close(2), unlink(2), getpid(2)
- * ====================================================================================
+ * Se usa /tmp y no memoria para poder deshacer sin depender de cuanto RAM
+ * haya libre; el costo es guardar una copia completa por version.
  */
 
 #include "editor.h"
@@ -40,18 +20,13 @@
 #include <stdio.h>      /* printf, perror, snprintf                   */
 #include <string.h>
 
-/* ==================================================================================
- * Utilidades internas
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* Utilidades internas                                                */
+/* ---------------------------------------------------------------- */
 
-/**
- * Copia el contenido completo del archivo abierto hacia el archivo 'ruta'.
- *
- * El archivo temporal se crea con permisos 0600 (lectura y escritura solo para el
- * dueno). En /tmp escriben todos los usuarios del sistema, de modo que dejar un
- * temporal legible expondria el contenido del documento a cualquiera.
- *
- * Retorna 0 en exito, -1 en error.
+/*
+ * Copia el archivo abierto hacia 'ruta'. Permisos 0600 porque en /tmp
+ * escriben todos los usuarios del sistema.
  */
 static int copiar_a_swap(Editor *ed, const char *ruta)
 {
@@ -87,14 +62,9 @@ static int copiar_a_swap(Editor *ed, const char *ruta)
     return 0;
 }
 
-/**
- * Copia el contenido del archivo 'ruta' sobre el archivo que edita el usuario.
- *
- * Despues de copiar se llama a ftruncate para ajustar el tamano: si la version
- * restaurada es mas corta que el contenido actual, sin ese recorte quedaria una
- * cola de bytes viejos al final.
- *
- * Retorna 0 en exito, -1 en error.
+/*
+ * Copia el contenido de 'ruta' sobre el archivo que edita el usuario y
+ * lo recorta con ftruncate al tamano de la version restaurada.
  */
 static int restaurar_desde_swap(Editor *ed, const char *ruta)
 {
@@ -138,10 +108,7 @@ static int restaurar_desde_swap(Editor *ed, const char *ruta)
     return ed_indexar(ed);
 }
 
-/**
- * Elimina del disco las versiones que estan por delante de 'desde' y las descarta
- * del historial. Se usa cuando el usuario modifica el archivo despues de deshacer.
- */
+/* Elimina del disco las versiones desde 'desde' en adelante. */
 static void descartar_desde(Editor *ed, int desde)
 {
     for (int i = desde; i < ed->hist.n; i++) {
@@ -150,9 +117,9 @@ static void descartar_desde(Editor *ed, int desde)
     ed->hist.n = desde;
 }
 
-/* ==================================================================================
- * Interfaz publica
- * ================================================================================== */
+/* ---------------------------------------------------------------- */
+/* Interfaz publica                                                   */
+/* ---------------------------------------------------------------- */
 
 void hist_init(Editor *ed)
 {
@@ -161,29 +128,20 @@ void hist_init(Editor *ed)
     ed->hist.contador = 0;
 }
 
-/**
- * Guarda el estado actual del archivo como una version nueva.
- *
- * Se llama al abrir el archivo (para tener el estado inicial) y despues de cada
- * modificacion exitosa.
- *
- * Si el historial esta lleno se descarta la version mas antigua: se elimina su
- * archivo con unlink y las demas se corren una posicion hacia atras. El usuario
- * pierde la capacidad de deshacer hasta el principio, pero el editor no se queda
- * sin espacio para guardar.
- *
- * Retorna 0 en exito, -1 en error.
+/*
+ * Guarda el estado actual como version nueva. Se llama al abrir el
+ * archivo y despues de cada modificacion exitosa. Si el historial esta
+ * lleno se descarta la version mas antigua.
  */
 int hist_registrar(Editor *ed)
 {
     if (!ed_esta_abierto(ed)) return -1;
 
-    /* Una modificacion nueva invalida las versiones que quedaban por rehacer. */
+    /* una modificacion nueva invalida lo que quedaba por rehacer */
     if (ed->hist.actual >= 0 && ed->hist.actual + 1 < ed->hist.n) {
         descartar_desde(ed, ed->hist.actual + 1);
     }
 
-    /* Si no queda cupo, se elimina la version mas antigua. */
     if (ed->hist.n == ED_MAX_VERSIONES) {
         unlink(ed->hist.rutas[0]);
         for (int i = 1; i < ed->hist.n; i++) {
@@ -193,9 +151,7 @@ int hist_registrar(Editor *ed)
         ed->hist.actual--;
     }
 
-    /* El nombre lleva el PID del proceso para que dos editores abiertos a la vez
-       no se pisen los archivos temporales, y un consecutivo para que cada version
-       tenga un nombre distinto. */
+    /* el PID evita choques entre dos editores abiertos a la vez */
     char ruta[ED_MAX_RUTA];
     snprintf(ruta, sizeof(ruta), "/tmp/editor_%d_%d.swap",
              (int)getpid(), ed->hist.contador);
@@ -212,15 +168,11 @@ int hist_registrar(Editor *ed)
     return 0;
 }
 
-/**
- * Restaura la version anterior a la actual.
- *
- * Retorna 0 si deshizo, 1 si ya no hay nada que deshacer, -1 en error.
- */
+/* Restaura la version anterior. 0 si deshizo, 1 si no hay nada, -1 en error. */
 int hist_deshacer(Editor *ed)
 {
     if (!ed_esta_abierto(ed)) return -1;
-    if (ed->hist.actual <= 0) return 1;     /* La version 0 es el estado inicial */
+    if (ed->hist.actual <= 0) return 1;   /* version 0 = estado inicial */
 
     if (restaurar_desde_swap(ed, ed->hist.rutas[ed->hist.actual - 1]) == -1) {
         return -1;
@@ -230,11 +182,7 @@ int hist_deshacer(Editor *ed)
     return 0;
 }
 
-/**
- * Restaura la version siguiente a la actual.
- *
- * Retorna 0 si rehizo, 1 si ya no hay nada que rehacer, -1 en error.
- */
+/* Restaura la version siguiente. Mismos codigos de retorno que deshacer. */
 int hist_rehacer(Editor *ed)
 {
     if (!ed_esta_abierto(ed)) return -1;
@@ -249,13 +197,7 @@ int hist_rehacer(Editor *ed)
     return 0;
 }
 
-/**
- * Elimina todos los archivos temporales y vacia el historial.
- *
- * unlink(2) borra la entrada de directorio que apunta al inodo. Cuando ya no queda
- * ningun nombre ni ningun proceso con el archivo abierto, el sistema libera el
- * espacio. Esta es la limpieza que exige el enunciado al cerrar el editor.
- */
+/* Elimina todos los archivos temporales y vacia el historial. */
 void hist_limpiar(Editor *ed)
 {
     for (int i = 0; i < ed->hist.n; i++) {
