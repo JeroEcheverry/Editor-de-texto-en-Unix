@@ -94,34 +94,15 @@ int ed_anexar(Editor *ed, const char *texto)
  *
  * ALGORITMO
  *
- *   Para abrir un hueco de 'hueco' bytes en la posicion 'off' hay que mover toda
- *   la region [off, tam) esa misma cantidad de bytes hacia adelante.
+ *   Abrir un hueco de 'hueco' bytes en la posicion 'off' implica mover toda la
+ *   region [off, tam) esa misma cantidad hacia adelante. El desplazamiento se
+ *   recorre DEL FINAL HACIA EL PRINCIPIO porque origen y destino se solapan (el
+ *   destino queda por delante del origen): copiar de principio a fin
+ *   sobrescribiria bytes que todavia no se han leido. Es el mismo criterio que
+ *   distingue a memcpy de memmove cuando las regiones se solapan.
  *
- *   El desplazamiento se recorre DESDE EL FINAL HACIA EL PRINCIPIO. El motivo es
- *   que la region de origen y la de destino se solapan: el destino esta por
- *   delante del origen, de modo que copiar de principio a fin sobrescribiria
- *   bytes que todavia no han sido leidos.
- *
- *   Ejemplo con el archivo "ABCDEFGH", insertando un hueco de 3 bytes en la
- *   posicion 2 y moviendo de a 2 bytes:
- *
- *     De principio a fin (incorrecto):
- *       leer [2,4)="CD" -> escribir en [5,7)  ->  A B C D E C D H
- *                                                          ^ la F se perdio
- *       leer [4,6)="EC" -> ya es basura
- *
- *     Del final al principio (correcto):
- *       leer [6,8)="GH" -> escribir en [9,11)   (mas alla del final del archivo)
- *       leer [4,6)="EF" -> escribir en [7,9)
- *       leer [2,4)="CD" -> escribir en [5,7)
- *       resultado: A B _ _ _ C D E F G H
- *
- *   Es el mismo criterio que distingue a memcpy de memmove en la biblioteca
- *   estandar: cuando las regiones se solapan, la direccion del recorrido decide
- *   si el resultado es correcto.
- *
- *   No hace falta ftruncate: el archivo crece automaticamente al escribir mas
- *   alla de su ultimo byte.
+ *   No hace falta ftruncate: el archivo crece solo al escribir mas alla de su
+ *   ultimo byte.
  *
  * Retorna 0 en exito, -1 en error.
  */

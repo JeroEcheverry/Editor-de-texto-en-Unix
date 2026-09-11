@@ -9,37 +9,19 @@
  *  (int (*handler)(int argc, char **argv)) y traduce esa llamada al bucle propio
  *  del editor.
  *
- *  DECISION DE DISENO: POR QUE UNA CATEGORIA NUEVA
+ *  Se registro en una categoria nueva ("edicion") en vez de meterlo en "datos"
+ *  porque el editor no se comporta como los demas comandos del shell: esos reciben
+ *  argumentos, ejecutan un par de syscalls, imprimen el resultado y devuelven el
+ *  control de inmediato. El editor en cambio toma el control de stdin con su
+ *  propio ciclo lectura-evaluacion-impresion, mantiene estado vivo entre comandos
+ *  (descriptor abierto, indice de lineas, portapapeles, historial) y representa
+ *  una sesion completa de trabajo, no una operacion puntual que se pueda trazar
+ *  como las demas.
  *
- *  El shell agrupa sus comandos en cuatro categorias: datos, memoria, monitoreo y
- *  utilidades. Los catorce comandos existentes comparten una misma naturaleza: son
- *  demostraciones de una sola operacion. Reciben sus argumentos, ejecutan dos o
- *  tres llamadas al sistema, imprimen el resultado y retornan. No conservan ningun
- *  estado entre invocaciones y no le quitan el control al bucle del shell.
- *
- *  El editor rompe ese patron en tres puntos:
- *
- *    1. Toma el control de la entrada estandar y ejecuta su propio ciclo
- *       lectura-evaluacion-impresion anidado dentro del ciclo del shell.
- *    2. Mantiene estado vivo entre comandos: un descriptor abierto, el indice de
- *       lineas, el portapapeles y el historial de deshacer.
- *    3. Sus llamadas al sistema no corresponden a una operacion unica que se pueda
- *       trazar e imprimir, sino a una sesion completa de trabajo.
- *
- *  Clasificarlo en "datos" seria correcto por el tema (trabaja con archivos) pero
- *  incorrecto por la naturaleza del comando, y haria que la ayuda del shell
- *  presentara como equivalentes dos cosas que se comportan de forma distinta. Por
- *  eso se registra en una categoria nueva, "edicion", reservada a aplicaciones
- *  interactivas que ceden y devuelven el control del shell.
- *
- *  ALTERNATIVA CONSIDERADA
- *
- *  El shell tambien puede lanzar binarios externos con fork(2) y execvp(3) a traves
- *  de p_exec. Ejecutar el editor por esa via aislaria su memoria en un proceso
- *  aparte, pero obligaria a mantener dos binarios separados y a que el shell no
- *  tuviera ningun conocimiento del editor. Se prefirio compilarlo dentro porque el
- *  enunciado pide integracion funcional y porque el editor forma parte del mismo
- *  proyecto, no es una herramienta externa del sistema.
+ *  Tambien se penso en lanzarlo como binario externo con fork(2)+execvp(3), como
+ *  hace p_exec, pero eso obligaria a mantener dos ejecutables separados. Se
+ *  prefirio compilarlo junto al shell porque el enunciado pide integracion
+ *  funcional, no solo poder invocarlo desde afuera.
  * ====================================================================================
  */
 
