@@ -92,27 +92,3 @@ automatica y muestra cada comando funcionando sobre un archivo de prueba.
 chmod +x script_pruebas.sh
 ./script_pruebas.sh
 ```
-El script recompila el proyecto desde cero, crea `demo.txt` y recorre en orden:
-Paso	Comandos	Que demuestra
-1	`o`, `a`	Creacion del archivo y adicion de lineas al final
-2	`i`	Insercion en una posicion arbitraria, desplazando el resto
-3	`d`	Borrado de una linea y compactacion del archivo
-4	`y`, `x`	Copiar una linea al portapapeles y pegarla en otra posicion
-5	`s`	Busqueda de una palabra como subcadena
-6	`u`, `r`	Deshacer y rehacer una modificacion
-7	`m`	Metadatos del archivo obtenidos con `fstat`
-Cada paso vuelve a abrir el archivo con `o` y sale con `q`, de modo que la salida
-demuestra que los cambios quedaron escritos en disco y no solo en memoria.
-Como funciona
-El script no requiere ninguna modificacion del editor. El bucle interactivo
-(`repl.c`) lee cada orden con `fgets(..., stdin)`, y a `fgets` le resulta
-indiferente si esos bytes provienen del teclado o de una redireccion. El script
-aprovecha esto alimentando al editor mediante un here document de bash:
-```bash
-./editor <<FIN
-o demo.txt
-a primera linea
-p
-q
-FIN
-```
