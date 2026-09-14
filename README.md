@@ -25,9 +25,10 @@ make
 
 Esto genera el ejecutable ./editor.
 
-bash
+<pre>
 ./editor                 # inicia sin archivo abierto
 ./editor notas.txt       # abre (o crea) notas.txt al arrancar
+<pre>
 
 Dentro del editor, h muestra la ayuda y q cierra el programa.
 
