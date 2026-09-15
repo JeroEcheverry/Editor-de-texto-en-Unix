@@ -92,6 +92,22 @@ q
 FIN
 
 
+paso "8. Robustez: manejo de entradas invalidas"
+./editor <<FIN
+p
+o $ARCHIVO
+p 0
+p 99
+d abc
+i
+x 1
+z
+o /tmp
+o /etc/shadow
+q
+FIN
+
+
 paso "Contenido final de $ARCHIVO"
 cat "$ARCHIVO"
 echo
