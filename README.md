@@ -149,6 +149,3 @@ p
 q
 FIN
 ```
-
-Todo lo que va entre `<<FIN` y `FIN` se entrega al programa por su entrada
-estandar, exactamente como si alguien lo hubiera escrito en el teclado.
